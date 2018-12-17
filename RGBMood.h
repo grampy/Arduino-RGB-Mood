@@ -1,7 +1,10 @@
 /*
+  Amended by Ron Prior, December 15, 2018
+  V0.4 : Dec 17, 2018	added functions setBrightness, brightness, setTemp, varyTemp & temperature.
+
   Created by Harold Waterkeyn, February 1, 2012
   V0.3 : Feb 4, 2012
-  
+    
   Credits:
   Inspired from the Moodlight Library by Kasper Kamperman
     http://www.kasperkamperman.com/blog/arduino-moodlight-library/
@@ -26,13 +29,18 @@ class RGBMood {
     void setHSB(uint16_t, uint16_t, uint16_t);     // Set a fixed color from HSB color space.
     void setRGB(uint16_t, uint16_t, uint16_t);     // Set a fixed color from RGB color space.
     void setRGB(uint32_t); // Using Color class.
+	void setTemp(uint32_t); // Using °Kelvin
+	void varyTemp(bool); 	 // set warmer (true) /cooler (false))
     void fadeHSB(uint16_t, uint16_t, uint16_t, bool = true);    // Fade to a new color (given in HSB color space).
     void fadeRGB(uint16_t, uint16_t, uint16_t);    // Fade to a new color (given in RGB color space).
     void fadeRGB(uint32_t); // Using Color class.
     void tick();                    // Update colors if needed. (call this in the loop function)
     void hsb2rgb(uint16_t, uint16_t, uint16_t, uint16_t&, uint16_t&, uint16_t&); // Used internally to convert HSB to RGB
-    bool isFading() {return fading_;}     // True we are currently fading to a new color.
+    void temp2rgb(uint32_t, uint16_t&, uint16_t&, uint16_t&);
+    bool isFading() {return fading_;}	// True we are currently fading to a new color.
     bool isStill() {return not fading_;}  // True if we are not fading to a new color.
+	void setBrightness(uint16_t t, bool = true); // set brightness absolute% (true) or relative% (false)
+	void setPowerState(bool = true); // set power state on (true) or off (false)
     void setMode(Modes m) {mode_ = m;}  // Change the mode.
     void setHoldingTime(uint16_t t) {holding_color_ = t;}     // How many ms do we keep a color before fading to a new one.
     void setFadingSpeed(uint16_t t) {fading_step_time_ = t;}  // How many ms between each step when fading.
@@ -40,11 +48,15 @@ class RGBMood {
     uint16_t red() {return current_RGB_color_[0];}                // The current red color.
     uint16_t green() {return current_RGB_color_[1];}              // The current green color.
     uint16_t blue() {return current_RGB_color_[2];}               // The current blue color.
+    uint16_t brightness() {return brightness_[0];}               // The current brightness setting.
+    uint16_t temperature() {return temperature_;}               // The current temperature °Kelvin.
   private:
     Modes mode_;
     uint8_t pins_[3];           // The pins for color output. (PWM)
     uint16_t current_RGB_color_[3];
     uint16_t current_HSB_color_[3];
+	  uint32_t temperature_;
+    uint16_t brightness_[2];	// 0 is current, 1 is saved at power off
     uint16_t initial_color_[3]; // Used when fading.
     uint16_t target_color_[3];  // Used when fading.
     uint16_t fading_step_;      // Current step of the fading.
@@ -54,6 +66,7 @@ class RGBMood {
                                 // Todo, why not using 2 boundary and random between the 2 ?
     bool fading_in_hsb_;        // Are we fading between colors in HSB color space ?
     bool fading_;               // Are we fading now ?
+	  bool powered_on_;
     unsigned long last_update_; // Last time we did something.
     void fade();                // Used internaly to fade
 };
