@@ -22,8 +22,7 @@ uint8_t dc[256] = {
 };
 
 // Constructor. Start with leds off.
-RGBMood::RGBMood(uint8_t rp, uint8_t gp, uint8_t bp)
-{
+RGBMood::RGBMood(uint8_t rp, uint8_t gp, uint8_t bp) {
   mode_ = FIX_MODE; // Stand still
   pins_[0] = rp;
   pins_[1] = gp;
@@ -34,6 +33,10 @@ RGBMood::RGBMood(uint8_t rp, uint8_t gp, uint8_t bp)
   current_HSB_color_[0] = 0;
   current_HSB_color_[1] = 0;
   current_HSB_color_[2] = 0;
+  temperature_ = 4000;
+  brightness_[0] = 255;
+  brightness_[1] = 255;
+  powered_on_ = true;
   fading_max_steps_ = 200;
   fading_step_time_ = 50;
   holding_color_ = 1000;
@@ -67,7 +70,14 @@ void RGBMood::setRGB(uint16_t r, uint16_t g, uint16_t b) {
   current_RGB_color_[2] = constrain(b, 0, 255);
   fading_ = false;
 }
-
+void RGBMood::setTemp(uint32_t k) {
+	temperature_ = k;
+	temp2rgb(k, current_RGB_color_[0], current_RGB_color_[1], current_RGB_color_[2]);
+}
+void RGBMood::varyTemp(bool increase) {
+	temperature_ = constrain(increase ? temperature_ + 1000 : temperature_ - 1000, 2000, 7000);
+	temp2rgb(temperature_, current_RGB_color_[0], current_RGB_color_[1], current_RGB_color_[2]);
+}
 void RGBMood::setRGB(uint32_t color) {
   setRGB((color & 0xFF0000) >> 16, (color & 0x00FF00) >> 8, color & 0x0000FF);
 }
@@ -105,7 +115,6 @@ void RGBMood::fadeHSB(uint16_t h, uint16_t s, uint16_t b, bool shortest) {
   fading_step_ = 0;
   fading_in_hsb_ = true;
 }
-
 /*
 Fade from current color to the one provided.
 @param r The red (0..255)
@@ -128,6 +137,23 @@ void RGBMood::fadeRGB(uint32_t color) {
   fadeRGB((color & 0xFF0000) >> 16, (color & 0x00FF00) >> 8, color & 0x0000FF);
 }
 
+void RGBMood::setBrightness(uint16_t val, bool absolute) {
+	if (absolute) {
+		brightness_[0] = 255 * val / 100;
+	} else {
+		brightness_[0] = constrain((brightness_[0] + (255 * val / 100)), 0, 255);  
+	}
+}
+void RGBMood::setPowerState(bool power_on) {
+	if (power_on && !powered_on_) {
+		brightness_[0] = brightness_[1];
+	}
+	if (!power_on && powered_on_) {
+		brightness_[1] = brightness_[0];
+		brightness_[0] = 0;
+	}
+	powered_on_ = power_on;
+}
 /*
 This function needs to be called in the loop function.
 */
@@ -179,12 +205,30 @@ void RGBMood::tick() {
   }
   if (pins_[0] > 0)
   {
-    analogWrite(pins_[0], current_RGB_color_[0]);
-    analogWrite(pins_[1], current_RGB_color_[1]);
-    analogWrite(pins_[2], current_RGB_color_[2]);
+    analogWrite(pins_[0], current_RGB_color_[0] * brightness_[0] / 255);
+    analogWrite(pins_[1], current_RGB_color_[1] * brightness_[0] / 255);
+    analogWrite(pins_[2], current_RGB_color_[2] * brightness_[0] / 255);
   }
 }
+/*  Private functions
+------------------------------------------------------------ */
 
+/*
+This function is used internaly to do the fading between colors.
+*/
+void RGBMood::fade() {
+  if (fading_in_hsb_) {
+    current_HSB_color_[0] = (uint16_t)(initial_color_[0] - (fading_step_*((initial_color_[0]-(float)target_color_[0])/fading_max_steps_)));
+    current_HSB_color_[1] = (uint16_t)(initial_color_[1] - (fading_step_*((initial_color_[1]-(float)target_color_[1])/fading_max_steps_)));
+    current_HSB_color_[2] = (uint16_t)(initial_color_[2] - (fading_step_*((initial_color_[2]-(float)target_color_[2])/fading_max_steps_)));
+    hsb2rgb(current_HSB_color_[0], current_HSB_color_[1], current_HSB_color_[2], current_RGB_color_[0], current_RGB_color_[1], current_RGB_color_[2]);
+  }
+  else {
+    current_RGB_color_[0] = (uint16_t)(initial_color_[0] - (fading_step_*((initial_color_[0]-(float)target_color_[0])/fading_max_steps_)));
+    current_RGB_color_[1] = (uint16_t)(initial_color_[1] - (fading_step_*((initial_color_[1]-(float)target_color_[1])/fading_max_steps_)));
+    current_RGB_color_[2] = (uint16_t)(initial_color_[2] - (fading_step_*((initial_color_[2]-(float)target_color_[2])/fading_max_steps_)));
+  }
+}
 /*
 Convert a HSB color to RGB
 This function is used internally but may be used by the end user too. (public).
@@ -250,24 +294,55 @@ void RGBMood::hsb2rgb(uint16_t hue, uint16_t sat, uint16_t val, uint16_t& red, u
     blue  = b; 
   }
 }
-
-/*  Private functions
------------------------------------------------------------- */
-
 /*
-This function is used internaly to do the fading between colors.
+	Given a temperature (in Kelvin), estimate an RGB equivalent
+	
+	Credit: http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
 */
-void RGBMood::fade()
-{
-  if (fading_in_hsb_) {
-    current_HSB_color_[0] = (uint16_t)(initial_color_[0] - (fading_step_*((initial_color_[0]-(float)target_color_[0])/fading_max_steps_)));
-    current_HSB_color_[1] = (uint16_t)(initial_color_[1] - (fading_step_*((initial_color_[1]-(float)target_color_[1])/fading_max_steps_)));
-    current_HSB_color_[2] = (uint16_t)(initial_color_[2] - (fading_step_*((initial_color_[2]-(float)target_color_[2])/fading_max_steps_)));
-    hsb2rgb(current_HSB_color_[0], current_HSB_color_[1], current_HSB_color_[2], current_RGB_color_[0], current_RGB_color_[1], current_RGB_color_[2]);
-  }
-  else {
-    current_RGB_color_[0] = (uint16_t)(initial_color_[0] - (fading_step_*((initial_color_[0]-(float)target_color_[0])/fading_max_steps_)));
-    current_RGB_color_[1] = (uint16_t)(initial_color_[1] - (fading_step_*((initial_color_[1]-(float)target_color_[1])/fading_max_steps_)));
-    current_RGB_color_[2] = (uint16_t)(initial_color_[2] - (fading_step_*((initial_color_[2]-(float)target_color_[2])/fading_max_steps_)));
-  }
+void RGBMood::temp2rgb(uint32_t tmpKelvin, uint16_t& red, uint16_t& green, uint16_t& blue) {
+
+    long tmpCalc;
+
+    //Temperature must fall between 2000 and 7000 degrees
+    //All calculations require tmpKelvin \ 100, so only do the conversion once
+	
+    tmpKelvin = constrain(tmpKelvin / 100, 20, 70);
+    
+    //Calculate each color in turn
+    
+    // First: red
+if (tmpKelvin <= 66) {
+        red = 255;
+    } else {
+        // the R-squared value for this approximation is .988
+        tmpCalc = tmpKelvin - 60;
+        tmpCalc = 329.698727446 * pow(tmpCalc, -0.1332047592);
+        red = constrain(tmpCalc, 0, 255);
+    }
+    
+    // Second: green
+    if (tmpKelvin <= 66) {
+        // the R-squared value for this approximation is .996
+        tmpCalc = tmpKelvin;
+        tmpCalc = 99.4708025861 * log(tmpCalc) - 161.1195681661;
+        green = constrain(tmpCalc, 0, 255);
+    } else {
+        // the R-squared value for this approximation is .987
+        tmpCalc = tmpKelvin - 60;
+        tmpCalc = 288.1221695283 * pow(tmpCalc, -0.0755148492);
+        green = constrain(tmpCalc, 0, 255);
+    }
+    
+    // Third: blue
+    if (tmpKelvin >= 66) {
+        blue = 255;
+    } else if (tmpKelvin <= 19) {
+        blue = 0;
+    } else {
+        // the R-squared value for this approximation is .998
+        tmpCalc = tmpKelvin - 10;
+        tmpCalc = 138.5177312231 * log(tmpCalc) - 305.0447927307;
+        blue = constrain(tmpCalc, 0, 255);
+    }
+    
 }
